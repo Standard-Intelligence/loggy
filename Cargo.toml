@@ -1,0 +1,27 @@
+[package]
+name = "si-loggy"
+version = "0.1.0"
+authors = ["Robert Avery <robert@stdint.com>"]
+description = "Automatic logging & nohup for arbitrary commands"
+repository = "https://github.com/Standard-Intelligence/loggy"
+keywords = ["logs", "logging", "nohup", "setsid", "disown"]
+license = "CC0-1.0"
+edition = "2021"
+
+[[bin]]
+name = "loggy"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2.155"
+memchr = "2.7.4"
+polling = "3.7.2"
+regex = "1.10.5"
+
+[profile.release]
+codegen-units = 1
+debug = false
+lto = true
+opt-level = 3
+strip = true
+panic = "abort"
