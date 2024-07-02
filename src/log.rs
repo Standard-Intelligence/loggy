@@ -83,6 +83,17 @@ pub fn args_str_and_prefix(argv0_loggy: bool) -> Option<(String, String)> {
     }
     prefix.shrink_to_fit();
 
+    unsafe {
+        for b in prefix.as_bytes_mut() {
+            if let b' ' | b'\t' | b'\n' | b'!' | b'"' | b'#' | b'$' | b'&' | b'\'' | b'(' | b')'
+            | b'*' | b';' | b'<' | b'=' | b'>' | b'?' | b'[' | b'\\' | b']' | b'^' | b'`'
+            | b'{' | b'|' | b'}' = b
+            {
+                *b = b'-';
+            }
+        }
+    }
+
     Some((args_str, prefix))
 }
 
