@@ -10,6 +10,13 @@
 
 ## Installation
 
+### From prebuilt binary
+
+```
+sudo curl -L -o /usr/local/bin/loggy https://loggy.stdint.com/loggy-$(uname -m)
+sudo chmod +x /usr/local/bin/loggy
+```
+
 ### From source
 
 ```
