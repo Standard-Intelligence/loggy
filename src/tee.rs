@@ -2,10 +2,7 @@ use std::{
     fs::{self, File},
     io::{self, ErrorKind, Read, Write},
     mem::MaybeUninit,
-    os::{
-        fd::AsRawFd,
-        unix::io::{FromRawFd, IntoRawFd, RawFd},
-    },
+    os::unix::io::{FromRawFd, IntoRawFd, RawFd},
     path::PathBuf,
 };
 
@@ -13,7 +10,7 @@ use libc::{STDERR_FILENO, STDOUT_FILENO};
 use memchr::memrchr;
 use polling::{Event, Events, Poller};
 
-use crate::{log::open_log_file, util};
+use crate::util;
 
 const INITIAL_BUF_LEN: usize = 32768;
 
@@ -63,32 +60,46 @@ fn handle_read(
     }
 }
 
-pub fn child(
-    mut child_stdout: File,
-    mut child_stderr: File,
+pub fn tee(
+    child_stdout: Option<File>,
+    child_stderr: Option<File>,
     mut log_file: File,
     log_filename: PathBuf,
 ) {
     let mut stdout = io::stdout().lock();
     let mut stderr = io::stderr().lock();
 
-    let mut stdout_buf = Vec::with_capacity(INITIAL_BUF_LEN);
-    let mut stderr_buf = Vec::with_capacity(INITIAL_BUF_LEN);
-
-    util::set_nonblocking(&child_stdout);
-    util::set_nonblocking(&child_stderr);
+    let mut stdout_buf = Vec::new();
+    let mut stderr_buf = Vec::new();
 
     let poller = Poller::new().expect("failed to create poller");
-    unsafe {
-        poller
-            .add(&child_stdout, Event::readable(STDOUT_FILENO as _))
-            .expect("failed to add fd to poller");
-        poller
-            .add(&child_stderr, Event::readable(STDERR_FILENO as _))
-            .expect("failed to add fd to poller");
+    let mut active_fds = 0;
+
+    if let Some(ref child_stdout) = child_stdout {
+        active_fds += 1;
+        stdout_buf.reserve(INITIAL_BUF_LEN);
+        util::set_nonblocking(child_stdout);
+        unsafe {
+            poller
+                .add(child_stdout, Event::readable(STDOUT_FILENO as _))
+                .expect("failed to add fd to poller");
+        }
     }
 
-    let mut active_fds = 2;
+    if let Some(ref child_stderr) = child_stderr {
+        active_fds += 1;
+        stderr_buf.reserve(INITIAL_BUF_LEN);
+        util::set_nonblocking(child_stderr);
+        unsafe {
+            poller
+                .add(child_stderr, Event::readable(STDERR_FILENO as _))
+                .expect("failed to add fd to poller");
+        }
+    }
+
+    let mut child_stdout = util::fd_or_dev_null(child_stdout);
+    let mut child_stderr = util::fd_or_dev_null(child_stderr);
+
     let mut written_any = false;
     let mut events = Events::new();
     loop {
@@ -145,40 +156,6 @@ pub fn child(
         log_file
             .write_all(&stderr_buf)
             .expect("failed to write stderr to log file");
-    } else {
-        fs::remove_file(&log_filename).expect("failed to remove empty log file");
-    }
-}
-
-pub fn passthrough() {
-    let (mut log_file, log_filename) = open_log_file("loggy").expect("failed to open log file");
-    writeln!(log_file, "[loggy] command: loggy").expect("failed to write to log file");
-
-    let stdin = io::stdin().lock();
-    let stdout = io::stdout().lock();
-    let mut stdin_file = unsafe { File::from_raw_fd(stdin.as_raw_fd()) };
-    let mut stdout_file = unsafe { File::from_raw_fd(stdout.as_raw_fd()) };
-
-    let mut buf = Vec::with_capacity(INITIAL_BUF_LEN);
-
-    // TODO: don't fail if writing to stdout becomes impossible because the other side has closed it (e.g. `loggy | head -n1`)
-    let mut written_any = false;
-    while !handle_read(
-        &mut buf,
-        &mut stdin_file,
-        &mut [&mut stdout_file, &mut log_file],
-        || {
-            if !written_any {
-                eprintln!("[loggy] logging to {}", log_filename.display());
-                written_any = true;
-            }
-        },
-    ) {}
-
-    if written_any {
-        log_file
-            .write_all(&buf)
-            .expect("failed to write stdin to log file");
     } else {
         fs::remove_file(&log_filename).expect("failed to remove empty log file");
     }

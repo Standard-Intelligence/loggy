@@ -1,7 +1,11 @@
 use std::{
     env,
+    fs::File,
     io::{self, ErrorKind},
-    os::unix::fs::PermissionsExt,
+    os::{
+        fd::{FromRawFd, IntoRawFd},
+        unix::fs::PermissionsExt,
+    },
     path::{Path, PathBuf},
 };
 
@@ -42,6 +46,13 @@ pub fn handle_errno(ret: c_int) -> io::Result<c_int> {
     match ret {
         -1 => Err(io::Error::last_os_error()),
         ret => Ok(ret),
+    }
+}
+
+pub fn fd_or_dev_null(s: Option<impl IntoRawFd>) -> File {
+    match s {
+        Some(fd) => unsafe { File::from_raw_fd(fd.into_raw_fd()) },
+        None => File::open("/dev/null").expect("failed to open /dev/null"),
     }
 }
 

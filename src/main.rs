@@ -3,9 +3,12 @@ use std::{
     env,
     fs::File,
     io::{self, ErrorKind, Write},
-    os::unix::{
-        io::{FromRawFd, IntoRawFd},
-        process::CommandExt,
+    os::{
+        fd::AsRawFd,
+        unix::{
+            io::{FromRawFd, IntoRawFd},
+            process::CommandExt,
+        },
     },
     path::PathBuf,
     process::{self, Command, Stdio},
@@ -23,7 +26,15 @@ fn main() {
     if argv0_loggy {
         match args.next() {
             Some(arg) => wrapped = PathBuf::from(arg),
-            None => return tee::passthrough(),
+            None => {
+                let (mut log_file, log_filename) =
+                    log::open_log_file("loggy").expect("failed to open log file");
+                writeln!(log_file, "[loggy] command: loggy").expect("failed to write to log file");
+
+                let stdin_file = unsafe { File::from_raw_fd(io::stdin().lock().as_raw_fd()) };
+
+                return tee::tee(Some(stdin_file), None, log_file, log_filename);
+            }
         }
     }
 
@@ -50,6 +61,20 @@ fn main() {
 
     util::nohup();
 
+    let mut command_stdout = true;
+    let mut command_stderr = true;
+    if let Ok(fds) = env::var("LOGGY_FDS") {
+        command_stdout = false;
+        command_stderr = false;
+        for fd in fds.split(',') {
+            match fd {
+                "1" | "stdout" | "STDOUT" => command_stdout = true,
+                "2" | "stderr" | "STDERR" => command_stderr = true,
+                _ => eprintln!("[loggy] invalid value for LOGGY_FDS: {fd}"),
+            }
+        }
+    }
+
     // TODO: write our own implementation of stdbuf that we can run on pre_exec
     // which can set argv[0] sans path (e.g. argv[0] = "mv", not "/usr/bin/mv")
     let mut child = match Command::new("stdbuf")
@@ -57,8 +82,14 @@ fn main() {
         .arg(&wrapped)
         .args(args)
         .stdin(Stdio::inherit())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(match command_stdout {
+            true => Stdio::piped(),
+            false => Stdio::inherit(),
+        })
+        .stderr(match command_stderr {
+            true => Stdio::piped(),
+            false => Stdio::inherit(),
+        })
         .env("NO_LOGGY", "1")
         .spawn()
     {
@@ -72,8 +103,14 @@ fn main() {
             Command::new(wrapped)
                 .args(args)
                 .stdin(Stdio::inherit())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
+                .stdout(match command_stdout {
+                    true => Stdio::piped(),
+                    false => Stdio::inherit(),
+                })
+                .stderr(match command_stderr {
+                    true => Stdio::piped(),
+                    false => Stdio::inherit(),
+                })
                 .env("NO_LOGGY", "1")
                 .spawn()
                 .expect("failed to spawn child process")
@@ -81,10 +118,16 @@ fn main() {
         Err(e) => panic!("failed to spawn child process: {e}"),
     };
 
-    let child_stdout = unsafe { File::from_raw_fd(child.stdout.take().unwrap().into_raw_fd()) };
-    let child_stderr = unsafe { File::from_raw_fd(child.stderr.take().unwrap().into_raw_fd()) };
+    let child_stdout = match command_stdout {
+        true => Some(unsafe { File::from_raw_fd(child.stdout.take().unwrap().into_raw_fd()) }),
+        false => None,
+    };
+    let child_stderr = match command_stderr {
+        true => Some(unsafe { File::from_raw_fd(child.stderr.take().unwrap().into_raw_fd()) }),
+        false => None,
+    };
 
-    tee::child(child_stdout, child_stderr, log_file, log_filename);
+    tee::tee(child_stdout, child_stderr, log_file, log_filename);
 
     let status = child.wait().expect("failed to wait for child process");
     process::exit(status.code().unwrap_or(1));

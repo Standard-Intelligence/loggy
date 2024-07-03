@@ -67,12 +67,18 @@ $ pip install -r requirements.txt
 
 If the wrapped program produces no output (e.g. `loggy true`), no log file is created.
 
-### Environment variable
+### Environment variables
 
 `loggy` can be temporarily disabled for a wrapped command by setting the `NO_LOGGY` environment variable (to any value except `0`):
 
 ```sh
 NO_LOGGY= python3 -m print-all-my-secrets
+```
+
+`loggy` can log only one of stdout or stderr using the `LOGGY_FDS` environment variable:
+
+```sh
+LOGGY_FDS=stderr loggy echo "this is printed to stdout and not logged"
 ```
 
 ### Exec hook
