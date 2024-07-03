@@ -7,7 +7,7 @@ use std::{
 };
 
 use libc::{STDERR_FILENO, STDOUT_FILENO};
-use memchr::memrchr;
+use memchr::memrchr2;
 use polling::{Event, Events, Poller};
 
 use crate::util;
@@ -29,7 +29,7 @@ fn handle_read(
                 let old_len = buf.len();
                 unsafe { buf.set_len(buf.len() + n) };
 
-                if let Some(idx) = memrchr(b'\n', &buf[old_len..]) {
+                if let Some(idx) = memrchr2(b'\r', b'\n', &buf[old_len..]) {
                     on_write();
                     for writer in writers.iter_mut() {
                         match writer.write_all(&buf[..old_len + idx + 1]) {
