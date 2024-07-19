@@ -133,3 +133,15 @@ We recommend using config files as a last resort, because writing regex is hard 
 If you've run `loggy` and then disconnected the terminal or SSH connection, run `tail -f ~/logs/example.log` in a new terminal to stream its output.
 
 If installed, `loggy` automatically uses [`stdbuf`](https://www.gnu.org/software/coreutils/manual/html_node/stdbuf-invocation.html) to ensure wrapped commands write their output to the terminal and log file line by line instead of with [full buffering](https://www.gnu.org/software/libc/manual/html_node/Buffering-Concepts.html). Ensure `stdbuf` is installed for optimal performance.
+
+It's often useful to view the logs of the most recent `loggy` invocation. Running the below commands allows you to run `snoop-loggy-log` to `tail -f` these logs:
+
+```sh
+sudo tee /usr/local/bin/snoop-loggy-log >/dev/null <<'EOF'
+#!/bin/sh
+
+cd ~/logs
+exec tail -f -n+0 "$(ls -t | head -n1)"
+EOF
+sudo chmod +x /usr/local/bin/snoop-loggy-log
+```
